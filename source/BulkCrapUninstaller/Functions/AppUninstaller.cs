@@ -41,8 +41,6 @@ namespace BulkCrapUninstaller.Functions
         /// </summary>
         public readonly object PublicUninstallLock = new();
 
-        private static readonly int MyProcessId = Environment.ProcessId;
-
         /// <exception cref="ArgumentNullException"> One of arguments is <see langword="null" />.</exception>
         internal AppUninstaller(Action listRefreshCallback, Action<bool> applicationLockCallback, Action<bool> visibleCallback)
         {
@@ -81,7 +79,7 @@ namespace BulkCrapUninstaller.Functions
             var filters = entries.SelectMany(e => new[] { e.InstallLocation, e.UninstallerLocation })
                 .Where(s => !string.IsNullOrEmpty(s)).Distinct().ToArray();
 
-            return GetRelatedProcessIds(filters, doNotKillSteam);
+            return RunningProcessTools.GetRelatedProcessIds(filters, doNotKillSteam);
         }
 
         private static bool CheckForRunningProcessesBeforeUninstall(IEnumerable<ApplicationUninstallerEntry> entries, bool doNotKillSteam)
@@ -120,7 +118,7 @@ namespace BulkCrapUninstaller.Functions
 
         internal static bool CheckForRunningProcesses(string[] filters, bool doNotKillSteam, Form parentForm = null)
         {
-            var idsToCheck = GetRelatedProcessIds(filters, doNotKillSteam);
+            var idsToCheck = RunningProcessTools.GetRelatedProcessIds(filters, doNotKillSteam);
 
             if (idsToCheck.Length > 0)
             {
@@ -129,51 +127,6 @@ namespace BulkCrapUninstaller.Functions
             }
 
             return true;
-        }
-
-        private static int[] GetRelatedProcessIds(string[] filters, bool doNotKillSteam)
-        {
-            var idsToCheck = new List<int>();
-            foreach (var pr in Process.GetProcesses())
-            {
-                try
-                {
-                    if (pr.Id == MyProcessId || pr.HasExited)
-                        continue;
-
-                    if (doNotKillSteam && pr.ProcessName.Equals("steam", StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    if (string.IsNullOrEmpty(pr.MainModule?.FileName) ||
-                        pr.MainModule.FileName.StartsWith(WindowsTools.GetEnvironmentPath(CSIDL.CSIDL_SYSTEM), StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    var filenames = pr.Modules.Cast<ProcessModule>()
-                        .Select(x => x.FileName)
-                        .Where(s => !string.IsNullOrEmpty(s))
-                        .Distinct();
-
-                    if (filenames.Any(filename => filters.Any(filter =>
-                    {
-                        if (string.IsNullOrEmpty(filename))
-                            return false;
-
-                        if (!Path.IsPathRooted(filename))
-                            return false;
-
-                        return filename.StartsWith(filter, StringComparison.OrdinalIgnoreCase);
-                    })))
-                    {
-                        idsToCheck.Add(pr.Id);
-                    }
-                }
-                catch
-                {
-                    // Ignore invalid processes
-                }
-            }
-
-            return idsToCheck.ToArray();
         }
 
         public void RunUninstall(IEnumerable<ApplicationUninstallerEntry> selectedUninstallers,

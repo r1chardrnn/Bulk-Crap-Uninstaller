@@ -6,6 +6,7 @@
 using Klocman.Extensions;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -62,7 +63,7 @@ Switches:
 
 Return codes:
  0	- The operation completed successfully.
- 1	- Invalid arguments, or a dry run matched no applications.
+ 1	- Invalid arguments, a dry run matched no applications, or junk cleanup was blocked by running processes.
  1223	- The operation was canceled by the user.");
         }
 
@@ -366,6 +367,17 @@ Return codes:
                     return 0;
                 }
 
+                // Deleting files that a running program has loaded would fail or break that program, so stop before deleting anything.
+                int[] blockingProcessIds = RunningProcessTools.GetRelatedProcessIds(
+                    remainingJunk.OfType<FileSystemJunk>().Select(x => x.Path.FullName).Distinct().ToArray(), false);
+                if (blockingProcessIds.Length > 0) {
+                    Console.WriteLine("Junk cleanup was skipped because these running processes are using files that would be deleted:");
+                    foreach (int id in blockingProcessIds)
+                        Console.WriteLine($"  {id} - {GetProcessName(id)}");
+                    Console.WriteLine("Close them and run the command again to clean up the junk.");
+                    return 1;
+                }
+
                 Console.WriteLine(isDryRun
                     ? "The following junk items would be permanently deleted:"
                     : "The following junk items will be permanently deleted:");
@@ -408,6 +420,19 @@ Return codes:
         {
             Console.WriteLine(@"Operation cancelled by the user.");
             return 1223;
+        }
+
+        private static string GetProcessName(int id)
+        {
+            try
+            {
+                return Process.GetProcessById(id).ProcessName;
+            }
+            catch (ArgumentException)
+            {
+                // The process exited after it was found
+                return "unknown";
+            }
         }
 
         private static IList<ApplicationUninstallerEntry> QueryApps(bool isQuiet, bool isUnattended, bool isVerbose)
